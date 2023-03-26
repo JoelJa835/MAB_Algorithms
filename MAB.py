@@ -1,53 +1,105 @@
+#!/usr/bin/env python3
 import numpy as np
-import random
 import matplotlib.pyplot as plt
 
-# Define the environment
-class BanditEnv:
+# Define k-stochastic bandit environment
+class BanditEnvironment:
     def __init__(self, k):
+        # k: number of bandits
         self.k = k
-        #Its not specified if a_i,b_i, are uniformly distributed
-        #self.a = np.random.uniform(size=k)
-        #self.b = np.random.uniform(size=k)
-        self.a = [round(random.random(), 2) for i in range(k)]
-        self.b = [round(random.random(), 2) for i in range(k)]
-        self.mu_star = np.max((self.a + self.b) / 2)
-        
-    def pull_arm(self, arm_idx):
-        return np.random.uniform(self.a[arm_idx], self.b[arm_idx])
+        self.bandits = []
+        # For each bandit, generate random reward parameters (a, b) from uniform distributions
+        for i in range(k):
+            a = np.random.uniform(0, 1)
+            b = np.random.uniform(0, 1)
+            self.bandits.append((a, b))
+    
+    # Given an arm, return a random reward drawn from the corresponding bandit's distribution
+    def get_reward(self, arm):
+        # arm: index of the bandit to pull
+        # Returns a reward drawn from a uniform distribution with lower bound a and upper bound b
+        a, b = self.bandits[arm]
+        return np.random.uniform(a, b)
 
-# Define the epsilon-greedy algorithm
-class EpsilonGreedy:
-    def __init__(self, k, T):
-        self.k = k
-        self.epsilon = ((np.log(T) * k)**(1/3)) / (T**(1/3))
-        self.e_rew = np.zeros(k)
-        self.arm_selec = np.zeros(k)
-        
-    def select_arm(self):
-        if np.random.rand() < self.epsilon:
-            return np.random.randint(self.k)
+
+# Define epsilon-greedy algorithm
+def epsilon_greedy(env, k, T):
+    eps = 1.0
+    eps_decay = (k * np.log(T)) ** (1/3) / T ** (1/3) # Decay rate for epsilon
+    n = [0] * k # Number of times each arm has been pulled
+    rewards = [0] * k # Cumulative rewards for each arm
+    est_means = [0] * k # Estimated mean reward for each arm
+    regrets = []
+    for t in range(T):
+        if np.random.uniform(0, 1) < eps: # With probability epsilon, choose a random arm
+            arm = np.random.choice(k)
+        else: # Otherwise, choose the arm with the highest estimated mean reward
+            arm = np.argmax(est_means)
+        reward = env.get_reward(arm)
+        n[arm] += 1
+        rewards[arm] += reward
+        est_means[arm] = rewards[arm] / n[arm] # Update estimated mean reward for the chosen arm
+        optimal_reward = np.max([env.get_reward(i) for i in range(k)]) # Calculate optimal reward for this round
+        regret = optimal_reward - reward # Calculate regret for this round
+        regrets.append(regret)
+        eps *= 1 - eps_decay # Decay epsilon for the next round
+    return np.cumsum(regrets) # Return the cumulative regret up to each round
+
+def ucb(env, k, T):
+    n = [0] * k # Number of times each arm has been pulled
+    rewards = [0] * k # Cumulative rewards for each arm
+    est_means = [0] * k # Estimated mean reward for each arm
+    regrets = []
+    for t in range(T):
+        if t < k:
+            # Play each arm k times to initialize the estimates and UCB values
+            reward = env.get_reward(t)
+            n[t] += 1
+            rewards[t] += reward
+            est_means[t] = rewards[t] / n[t]
+            regrets.append(0)
         else:
-            return np.argmax(self.e_rew)
-        
-    def update(self, arm_idx, reward):
-        self.arm_selec[arm_idx] += 1
-        self.e_rew[arm_idx] += (reward - self.e_rew[arm_idx]) / self.arm_selec[arm_idx] + self.epsilon
+            # Choose the arm with the highest UCB value
+            ucb_values = [est_means[i] + np.sqrt(2*np.log(t) / n[i]) for i in range(k)] # Calculate UCB values for each arm
+            arm = np.argmax(ucb_values) # Select the arm with the highest UCB value
+            reward = env.get_reward(arm) # Observe the reward for the chosen arm
+            n[arm] += 1 # Increment the count of times the chosen arm has been pulled
+            rewards[arm] += reward # Add the observed reward to the cumulative rewards for the chosen arm
+            est_means[arm] = rewards[arm] / n[arm] # Update the estimated mean reward for the chosen arm
+            optimal_reward = np.max([env.get_reward(i) for i in range(k)]) # Find the optimal reward among all arms
+            regret = optimal_reward - reward #Calculate regret for the chosen arm
+            regrets.append(regret) #Add the regret to the list of regrets
+    return np.cumsum(regrets)
 
-# Define the Upper Confidence Bound algorithm
-class UCB:
-    def __init__(self, k, c=2):
-        self.k = k
-        self.c = np.sqrt(2 * np.log(T) / np.sum(self.arm_selec))
-        self.e_rew = np.zeros(k)
-        self.arm_selec = np.zeros(k)
-        self.t = 0
-        
-    def select_arm(self):
-            t = np.sum(self.N) + 1
-            ucb_vals = self.e_rew + self.c * np.sqrt(np.log(self.t) / (self.arm_selec+ 1e-6))
-            return np.argmax(ucb_vals)
-        
-    def update(self, arm_idx, reward):
-        self.arm_selec[arm_idx] += 1
-        self.e_rew[arm_idx] += (reward - self.e_rew[arm_idx]) / self.arm_selec[arm_idx]
+# Define a function to run the bandit algorithm and plot the results
+def run_bandit(env, k, T):
+    # Run epsilon-greedy and UCB algorithms and store the cumulative regrets
+    eps_regrets = epsilon_greedy(env, k, T)
+    ucb_regrets = ucb(env, k, T)
+    
+    # Plot the cumulative regrets for both algorithms
+    plt.plot(eps_regrets, label="Epsilon-Greedy")
+    plt.plot(ucb_regrets, label="UCB")
+    plt.xlabel("Time")
+    plt.ylabel("Cumulative Regret")
+    plt.legend()
+    plt.show()
+
+# Define the values of T and k for each environment to be tested
+T_values = [1000, 2000, 10000]
+k_values = [10, 20, 30]
+
+# Loop over the different environments and run the bandit algorithm for each
+for i in range(len(T_values)):
+    print(i)
+    # Create a new bandit environment for the current k value
+    env = BanditEnvironment(k_values[i])
+    
+    # Add a title to the plot indicating the current T and k values
+    plt.title(f"T={T_values[i]}, k={k_values[i]}")
+    
+    # Run the bandit algorithm and plot the results
+    run_bandit(env, k_values[i], T_values[i])
+
+
+
