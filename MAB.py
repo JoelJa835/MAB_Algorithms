@@ -20,30 +20,32 @@ class BanditEnvironment:
         # Returns a reward drawn from a uniform distribution with lower bound a and upper bound b
         a, b = self.bandits[arm]
         return np.random.uniform(a, b)
-
-
-# Define epsilon-greedy algorithm
+    
 def epsilon_greedy(env, k, T):
-    eps = 1.0
-    eps_decay = (k * np.log(T)) ** (1/3) / T ** (1/3) # Decay rate for epsilon
     n = [0] * k # Number of times each arm has been pulled
     rewards = [0] * k # Cumulative rewards for each arm
     est_means = [0] * k # Estimated mean reward for each arm
     regrets = []
     for t in range(T):
-        if np.random.uniform(0, 1) < eps: # With probability epsilon, choose a random arm
-            arm = np.random.choice(k)
-        else: # Otherwise, choose the arm with the highest estimated mean reward
+        # Calculate exploration rate epsilon for the current time step using the given theorem
+        with np.errstate(divide='ignore'):
+            epsilon = np.power(t, -1/3) * np.power(k * np.log(t), 1/3)
+
+        if np.random.rand() < epsilon:
+            # Choose a random arm with equal probability if the exploration strategy is selected
+            arm = np.random.randint(k)
+        else:
+            # Choose the arm with the highest estimated mean reward if the exploitation strategy is selected
             arm = np.argmax(est_means)
-        reward = env.get_reward(arm)
-        n[arm] += 1
-        rewards[arm] += reward
-        est_means[arm] = rewards[arm] / n[arm] # Update estimated mean reward for the chosen arm
-        optimal_reward = np.max([env.get_reward(i) for i in range(k)]) # Calculate optimal reward for this round
-        regret = optimal_reward - reward # Calculate regret for this round
-        regrets.append(regret)
-        eps *= 1 - eps_decay # Decay epsilon for the next round
-    return np.cumsum(regrets) # Return the cumulative regret up to each round
+        reward = env.get_reward(arm) # Observe the reward for the chosen arm
+        n[arm] += 1 # Increment the count of times the chosen arm has been pulled
+        rewards[arm] += reward # Add the observed reward to the cumulative rewards for the chosen arm
+        est_means[arm] = rewards[arm] / n[arm] # Update the estimated mean reward for the chosen arm
+        optimal_reward = np.max([env.get_reward(i) for i in range(k)]) # Find the optimal reward among all arms
+        regret = optimal_reward - reward #Calculate regret for the chosen arm
+        regrets.append(regret) #Add the regret to the list of regrets
+    return np.cumsum(regrets)
+
 
 def ucb(env, k, T):
     n = [0] * k # Number of times each arm has been pulled
@@ -86,7 +88,7 @@ def run_bandit(env, k, T):
     plt.show()
 
 # Define the values of T and k for each environment to be tested
-T_values = [1000, 2000, 10000]
+T_values = [1000, 2000, 30000]
 k_values = [10, 20, 30]
 
 # Loop over the different environments and run the bandit algorithm for each
